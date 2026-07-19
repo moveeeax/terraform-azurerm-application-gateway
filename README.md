@@ -10,7 +10,7 @@ attached.
 
 ```hcl
 module "application_gateway" {
-  source = "github.com/cybercapybara/terraform-azurerm-application-gateway"
+  source = "github.com/moveeeax/terraform-azurerm-application-gateway"
 
   name                = "prod-appgw"
   resource_group_name = "prod-rg"
