@@ -181,9 +181,14 @@ variable "redirect_http_to_https" {
 }
 
 variable "identity_ids" {
-  description = "User-assigned managed identity IDs attached to the gateway. Required when ssl_certificate_key_vault_secret_id is used."
+  description = "User-assigned managed identity ID attached to the gateway, as a single-element list. Required when ssl_certificate_key_vault_secret_id is used. Azure supports at most one managed identity per Application Gateway; a longer list is rejected at plan time instead of failing obscurely on apply."
   type        = list(string)
   default     = []
+
+  validation {
+    condition     = length(var.identity_ids) <= 1
+    error_message = "identity_ids can contain at most one identity: Azure Application Gateway supports only a single user-assigned managed identity."
+  }
 }
 
 variable "firewall_policy_id" {

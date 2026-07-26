@@ -136,7 +136,7 @@ OpenTofu >= 1.7 for `mock_provider`; the module itself does not.
 | `ssl_certificate_password`            | Password for `ssl_certificate_data`.                                                                        | `string`       | `null`                    |    no    |
 | `https_host_name`                     | Host name the HTTPS listener answers for.                                                                   | `string`       | `null`                    |    no    |
 | `redirect_http_to_https`              | Redirect the HTTP listener to HTTPS when an HTTPS listener exists.                                          | `bool`         | `true`                    |    no    |
-| `identity_ids`                        | User-assigned managed identity IDs attached to the gateway.                                                 | `list(string)` | `[]`                      |    no    |
+| `identity_ids`                        | User-assigned managed identity ID attached to the gateway, as a single-element list (Azure allows at most one). | `list(string)` | `[]`                   |    no    |
 | `firewall_policy_id`                  | Standalone WAF policy to attach. Requires `sku_tier = "WAF_v2"` and replaces the inline WAF configuration.  | `string`       | `null`                    |    no    |
 | `waf_firewall_mode`                   | Inline WAF mode. `Detection` only logs; `Prevention` blocks.                                                | `string`       | `"Prevention"`            |    no    |
 | `waf_rule_set_type`                   | Inline WAF rule set type.                                                                                   | `string`       | `"OWASP"`                 |    no    |
