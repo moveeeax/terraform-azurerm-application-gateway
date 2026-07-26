@@ -239,6 +239,20 @@ run "key_vault_certificate_without_an_identity_is_rejected" {
   expect_failures = [azurerm_application_gateway.this]
 }
 
+run "rejects_more_than_one_identity_id" {
+  command = plan
+
+  variables {
+    ssl_certificate_key_vault_secret_id = "https://test-kv.vault.azure.net/secrets/appgw-cert"
+    identity_ids = [
+      "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/appgw-1",
+      "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/appgw-2",
+    ]
+  }
+
+  expect_failures = [var.identity_ids]
+}
+
 run "backend_protocol_can_be_switched_to_https" {
   variables {
     backend_protocol = "Https"
@@ -259,4 +273,51 @@ run "rejects_unknown_backend_protocol" {
   }
 
   expect_failures = [var.backend_protocol]
+}
+
+# The individual runs above each flip one optional feature at a time. This one
+# turns on every optional feature together - WAF, a Key Vault certificate with
+# its redirect, and end-to-end TLS to the backend - to catch interactions that
+# only show up when the flags combine (e.g. one feature's dynamic block
+# accidentally suppressing another's).
+run "waf_https_redirect_and_backend_tls_all_work_together" {
+  variables {
+    sku_name = "WAF_v2"
+    sku_tier = "WAF_v2"
+
+    waf_firewall_mode    = "Prevention"
+    waf_rule_set_version = "3.2"
+
+    ssl_certificate_key_vault_secret_id = "https://test-kv.vault.azure.net/secrets/appgw-cert"
+    identity_ids                        = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/appgw"]
+    https_host_name                     = "www.example.com"
+
+    backend_protocol = "Https"
+    backend_port     = 443
+  }
+
+  assert {
+    condition     = azurerm_application_gateway.this.waf_configuration[0].enabled
+    error_message = "The WAF must stay enabled when combined with HTTPS and backend TLS."
+  }
+
+  assert {
+    condition     = length(azurerm_application_gateway.this.http_listener) == 2
+    error_message = "A certificate must still add the HTTPS listener when the WAF is also on."
+  }
+
+  assert {
+    condition     = one([for r in azurerm_application_gateway.this.redirect_configuration : r.redirect_type]) == "Permanent"
+    error_message = "HTTP must still redirect to HTTPS when the WAF is also on."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.protocol]) == "Https"
+    error_message = "The backend hop must still use HTTPS when the WAF and gateway HTTPS are also on."
+  }
+
+  assert {
+    condition     = one([for r in azurerm_application_gateway.this.request_routing_rule : r.backend_address_pool_name if r.name == "test-appgw-rqrt-https"]) == "test-appgw-beap"
+    error_message = "The HTTPS routing rule must still serve the backend pool with every optional feature enabled."
+  }
 }
