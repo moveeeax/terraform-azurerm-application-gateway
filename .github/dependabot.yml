@@ -1,3 +1,6 @@
+# Monthly, with patch and minor updates grouped into one PR each; majors
+# come one per PR. Patch PRs merge themselves once CI passes
+# (dependabot-auto-merge.yml).
 version: 2
 
 updates:
@@ -5,3 +8,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      patch:
+        update-types: [patch]
+      minor:
+        update-types: [minor]
