@@ -25,7 +25,7 @@ Minimal, plain HTTP:
 
 ```hcl
 module "application_gateway" {
-  source = "github.com/moveeeax/terraform-azurerm-application-gateway"
+  source = "github.com/moveeeax/terraform-azurerm-application-gateway?ref=v1.0.0"
 
   name                = "prod-appgw"
   resource_group_name = "prod-rg"
@@ -45,7 +45,7 @@ WAF-enabled, TLS-terminating, redirecting HTTP to HTTPS:
 
 ```hcl
 module "application_gateway" {
-  source = "github.com/moveeeax/terraform-azurerm-application-gateway"
+  source = "github.com/moveeeax/terraform-azurerm-application-gateway?ref=v1.0.0"
 
   name                = "prod-appgw"
   resource_group_name = "prod-rg"
@@ -106,7 +106,13 @@ is dropped - the two are mutually exclusive in Azure.
 | Name      | Version  |
 |-----------|----------|
 | terraform | >= 1.5   |
-| azurerm   | >= 3.0   |
+| azurerm   | >= 3.66.0, < 6.0 |
+
+The floor is 3.66.0: `ssl_policy_type = "CustomV2"` with TLS 1.3 arrived in
+azurerm 3.40.0, and 3.66.0 fixed the provider to actually send
+`min_protocol_version` for `CustomV2` policies. CI validates the module against
+3.66.0 and runs the test suite against the latest 5.x release; 6.x is excluded
+until it has been tested.
 
 The test suite under [`tests/`](tests) additionally needs Terraform or
 OpenTofu >= 1.7 for `mock_provider`; the module itself does not.
