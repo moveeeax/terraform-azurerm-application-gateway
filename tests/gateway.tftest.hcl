@@ -321,3 +321,268 @@ run "waf_https_redirect_and_backend_tls_all_work_together" {
     error_message = "The HTTPS routing rule must still serve the backend pool with every optional feature enabled."
   }
 }
+
+run "defaults_keep_the_azure_default_probe" {
+  command = plan
+
+  assert {
+    condition     = length(azurerm_application_gateway.this.probe) == 0
+    error_message = "No custom probe may be emitted unless probe is set."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.probe_name]) == null
+    error_message = "The backend HTTP settings must not reference a probe by default."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.host_name]) == null
+    error_message = "The backend HTTP settings must not override the Host header by default."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.pick_host_name_from_backend_address]) == false
+    error_message = "The backend HTTP settings must not pick the backend host name by default."
+  }
+}
+
+run "probe_with_backend_host_from_address" {
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path = "/healthz"
+    }
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.name]) == "test-appgw-probe"
+    error_message = "Setting probe must emit one probe named after the gateway."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.probe_name]) == "test-appgw-probe"
+    error_message = "The backend HTTP settings must use the custom probe."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.path]) == "/healthz"
+    error_message = "probe.path must reach the probe."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.protocol]) == "Http"
+    error_message = "The probe protocol must default to backend_protocol."
+  }
+
+  assert {
+    condition = one([for p in azurerm_application_gateway.this.probe : (
+      p.interval == 30 && p.timeout == 30 && p.unhealthy_threshold == 3
+    )])
+    error_message = "The probe must default to a 30 s interval, 30 s timeout and 3 failures."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.match[0].status_code]) == tolist(["200-399"])
+    error_message = "The probe must accept 200-399 by default."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.pick_host_name_from_backend_http_settings])
+    error_message = "The probe must take its host from the backend HTTP settings by default."
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.pick_host_name_from_backend_address])
+    error_message = "backend_pick_host_name_from_backend_address must reach the backend HTTP settings."
+  }
+}
+
+run "probe_with_its_own_host_over_https" {
+  variables {
+    backend_protocol = "Https"
+    backend_port     = 443
+
+    probe = {
+      path                                      = "/status"
+      host                                      = "app.internal.example.com"
+      pick_host_name_from_backend_http_settings = false
+      interval                                  = 15
+      timeout                                   = 10
+      unhealthy_threshold                       = 5
+      match_status_codes                        = ["200"]
+      match_body                                = "ok"
+    }
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.host]) == "app.internal.example.com"
+    error_message = "probe.host must reach the probe."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.protocol]) == "Https"
+    error_message = "The probe must follow backend_protocol when probe.protocol is null."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.match[0].body]) == "ok"
+    error_message = "probe.match_body must reach the probe."
+  }
+
+  assert {
+    condition     = one([for p in azurerm_application_gateway.this.probe : p.unhealthy_threshold]) == 5
+    error_message = "probe.unhealthy_threshold must reach the probe."
+  }
+}
+
+run "backend_host_name_reaches_the_http_settings" {
+  variables {
+    backend_host_name = "app.example.com"
+  }
+
+  assert {
+    condition     = one([for s in azurerm_application_gateway.this.backend_http_settings : s.host_name]) == "app.example.com"
+    error_message = "backend_host_name must reach the backend HTTP settings."
+  }
+}
+
+run "rejects_probe_picking_a_host_the_settings_do_not_have" {
+  command = plan
+
+  variables {
+    probe = {
+      path = "/healthz"
+    }
+  }
+
+  expect_failures = [azurerm_application_gateway.this]
+}
+
+run "rejects_probe_with_host_and_pick_host_name" {
+  command = plan
+
+  variables {
+    backend_host_name = "app.example.com"
+
+    probe = {
+      path = "/healthz"
+      host = "app.example.com"
+    }
+  }
+
+  expect_failures = [azurerm_application_gateway.this]
+}
+
+run "rejects_probe_without_any_host" {
+  command = plan
+
+  variables {
+    probe = {
+      path                                      = "/healthz"
+      pick_host_name_from_backend_http_settings = false
+    }
+  }
+
+  expect_failures = [azurerm_application_gateway.this]
+}
+
+run "rejects_backend_host_name_with_pick_host_name_from_backend_address" {
+  command = plan
+
+  variables {
+    backend_host_name                           = "app.example.com"
+    backend_pick_host_name_from_backend_address = true
+  }
+
+  expect_failures = [azurerm_application_gateway.this]
+}
+
+run "rejects_probe_path_without_leading_slash" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path = "healthz"
+    }
+  }
+
+  expect_failures = [var.probe]
+}
+
+run "rejects_unknown_probe_protocol" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path     = "/healthz"
+      protocol = "Tcp"
+    }
+  }
+
+  expect_failures = [var.probe]
+}
+
+run "rejects_out_of_range_probe_unhealthy_threshold" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path                = "/healthz"
+      unhealthy_threshold = 21
+    }
+  }
+
+  expect_failures = [var.probe]
+}
+
+run "rejects_out_of_range_probe_interval" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path     = "/healthz"
+      interval = 0
+    }
+  }
+
+  expect_failures = [var.probe]
+}
+
+run "rejects_malformed_probe_status_code" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path               = "/healthz"
+      match_status_codes = ["2xx"]
+    }
+  }
+
+  expect_failures = [var.probe]
+}
+
+run "rejects_empty_probe_status_codes" {
+  command = plan
+
+  variables {
+    backend_pick_host_name_from_backend_address = true
+
+    probe = {
+      path               = "/healthz"
+      match_status_codes = []
+    }
+  }
+
+  expect_failures = [var.probe]
+}

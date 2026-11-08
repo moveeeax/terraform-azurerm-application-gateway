@@ -111,6 +111,87 @@ variable "request_timeout" {
   }
 }
 
+variable "backend_host_name" {
+  description = "Host header sent to the backend pool members. Null forwards the client's Host header. Cannot be combined with backend_pick_host_name_from_backend_address."
+  type        = string
+  default     = null
+}
+
+variable "backend_pick_host_name_from_backend_address" {
+  description = "Send the backend member's own host name (for example an App Service default domain) as the Host header. Cannot be combined with backend_host_name."
+  type        = bool
+  default     = false
+}
+
+variable "probe" {
+  description = <<-EOT
+    Optional custom health probe attached to the backend HTTP settings. Null
+    keeps Azure's default probe, which requests / on the backend address.
+
+    Fields:
+      path                                      - Path requested by the probe, starting with /.
+      host                                      - Host header sent by the probe. Set it together with pick_host_name_from_backend_http_settings = false.
+      protocol                                  - Http or Https. Null uses backend_protocol.
+      port                                      - Port probed (1-65535). Null uses the backend HTTP settings port.
+      interval                                  - Seconds between probes (1-86400).
+      timeout                                   - Seconds before a probe counts as failed (1-86400).
+      unhealthy_threshold                       - Consecutive failures before a member is marked unhealthy (1-20).
+      match_status_codes                        - Healthy status codes or ranges, for example 200 or 200-399.
+      match_body                                - Substring the response body must contain. Null skips the body check.
+      pick_host_name_from_backend_http_settings - Take the Host header from the backend HTTP settings. Requires backend_host_name or backend_pick_host_name_from_backend_address.
+  EOT
+
+  type = object({
+    path                                      = string
+    host                                      = optional(string)
+    protocol                                  = optional(string)
+    port                                      = optional(number)
+    interval                                  = optional(number, 30)
+    timeout                                   = optional(number, 30)
+    unhealthy_threshold                       = optional(number, 3)
+    match_status_codes                        = optional(list(string), ["200-399"])
+    match_body                                = optional(string)
+    pick_host_name_from_backend_http_settings = optional(bool, true)
+  })
+  default = null
+
+  validation {
+    condition     = var.probe == null ? true : startswith(var.probe.path, "/")
+    error_message = "probe.path must start with /."
+  }
+
+  validation {
+    condition     = var.probe == null ? true : (var.probe.protocol == null ? true : contains(["Http", "Https"], var.probe.protocol))
+    error_message = "probe.protocol must be one of: Http, Https."
+  }
+
+  validation {
+    condition     = var.probe == null ? true : (var.probe.port == null ? true : (var.probe.port >= 1 && var.probe.port <= 65535))
+    error_message = "probe.port must be between 1 and 65535."
+  }
+
+  validation {
+    condition = var.probe == null ? true : (
+      var.probe.interval >= 1 && var.probe.interval <= 86400 &&
+      var.probe.timeout >= 1 && var.probe.timeout <= 86400
+    )
+    error_message = "probe.interval and probe.timeout must be between 1 and 86400 seconds."
+  }
+
+  validation {
+    condition     = var.probe == null ? true : (var.probe.unhealthy_threshold >= 1 && var.probe.unhealthy_threshold <= 20)
+    error_message = "probe.unhealthy_threshold must be between 1 and 20."
+  }
+
+  validation {
+    condition = var.probe == null ? true : (
+      length(var.probe.match_status_codes) > 0 &&
+      alltrue([for code in var.probe.match_status_codes : can(regex("^[1-5][0-9]{2}(-[1-5][0-9]{2})?$", code))])
+    )
+    error_message = "probe.match_status_codes must list at least one status code or range, for example 200 or 200-399."
+  }
+}
+
 variable "ssl_policy_type" {
   description = "SSL policy type. Predefined selects one of Azure's named policies; CustomV2 selects a minimum protocol version directly."
   type        = string

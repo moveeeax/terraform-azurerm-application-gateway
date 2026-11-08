@@ -16,6 +16,8 @@ The defaults aim to be safe rather than minimal:
   configuration and no firewall policy is rejected by Azure.
 - Supplying a certificate adds an HTTPS listener and, by default, turns the
   plain HTTP listener into a permanent redirect to it.
+- No custom health probe is created unless `probe` is set, so Azure's default
+  probe (`/` on the backend address) stays in place for existing gateways.
 - `sku_name`/`sku_tier` mismatches, Key Vault certificates without an identity,
   and firewall policies on non-WAF tiers fail at plan time instead of at apply.
 
@@ -101,6 +103,54 @@ routing straight to the backend pool.
 `azurerm_web_application_firewall_policy` instead, and the inline configuration
 is dropped - the two are mutually exclusive in Azure.
 
+## Health probes
+
+Azure's default probe requests `/` and does not send a Host header chosen for
+the backend. Backends that need a specific Host header or answer health checks
+on another path then show as unhealthy and the gateway returns 502. Setting `probe` emits one custom probe, `<name>-probe`, and attaches it to
+the module's backend HTTP settings:
+
+```hcl
+# Host header taken from the backend HTTP settings (recommended for App Service
+# and other multi-tenant backends).
+backend_pick_host_name_from_backend_address = true
+
+probe = {
+  path = "/healthz"
+}
+```
+
+or with a fixed host:
+
+```hcl
+probe = {
+  path                                      = "/status"
+  host                                      = "app.internal.example.com"
+  pick_host_name_from_backend_http_settings = false
+  match_status_codes                        = ["200"]
+}
+```
+
+The probe needs exactly one host source. With
+`pick_host_name_from_backend_http_settings = true` (the default) the backend
+HTTP settings must carry a host, through `backend_host_name` or
+`backend_pick_host_name_from_backend_address`; otherwise set `probe.host` and
+turn the pick off. Both mistakes fail at plan time. The protocol follows
+`backend_protocol` unless `probe.protocol` is set.
+
+| Field                                       | Type           | Default         | Notes |
+|---------------------------------------------|----------------|-----------------|-------|
+| `path`                                      | `string`       | n/a             | Required. Must start with `/`. |
+| `host`                                      | `string`       | `null`          | Host header sent by the probe. Requires `pick_host_name_from_backend_http_settings = false`. |
+| `protocol`                                  | `string`       | `null`          | `Http` or `Https`. Null uses `backend_protocol`. |
+| `port`                                      | `number`       | `null`          | 1-65535. Null uses the backend HTTP settings port. |
+| `interval`                                  | `number`       | `30`            | Seconds between probes (1-86400). |
+| `timeout`                                   | `number`       | `30`            | Seconds before a probe fails (1-86400). |
+| `unhealthy_threshold`                       | `number`       | `3`             | Consecutive failures before a member is unhealthy (1-20). |
+| `match_status_codes`                        | `list(string)` | `["200-399"]`   | Codes or ranges, for example `200` or `200-399`. |
+| `match_body`                                | `string`       | `null`          | Substring the response body must contain. |
+| `pick_host_name_from_backend_http_settings` | `bool`         | `true`          | Take the Host header from the backend HTTP settings. |
+
 ## Requirements
 
 | Name      | Version  |
@@ -133,6 +183,9 @@ OpenTofu >= 1.7 for `mock_provider`; the module itself does not.
 | `https_port`                          | Port exposed on the HTTPS frontend listener. Only used when a certificate is supplied.                      | `number`       | `443`                     |    no    |
 | `backend_port`                        | Port used to reach the backend pool members.                                                                | `number`       | `80`                      |    no    |
 | `backend_protocol`                    | Protocol spoken to the backend pool. `Http` is unencrypted on that hop; `Https` gives end-to-end TLS.       | `string`       | `"Http"`                  |    no    |
+| `backend_host_name`                   | Host header sent to the backend pool. Null forwards the client's Host header.                               | `string`       | `null`                    |    no    |
+| `backend_pick_host_name_from_backend_address` | Send each backend member's own host name as the Host header.                                       | `bool`         | `false`                   |    no    |
+| `probe`                               | Optional custom health probe attached to the backend HTTP settings. See [Health probes](#health-probes).    | `object`       | `null`                    |    no    |
 | `request_timeout`                     | Request timeout in seconds for backend HTTP settings (1-86400).                                             | `number`       | `60`                      |    no    |
 | `ssl_policy_type`                     | One of `Predefined`, `CustomV2`.                                                                            | `string`       | `"Predefined"`            |    no    |
 | `ssl_policy_name`                     | Predefined policy used when `ssl_policy_type` is `Predefined`. Only TLS 1.2+ policies are accepted.         | `string`       | `"AppGwSslPolicy20220101"`|    no    |

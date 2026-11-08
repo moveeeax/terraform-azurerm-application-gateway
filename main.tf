@@ -10,6 +10,7 @@ locals {
   https_request_routing_rule_name = "${var.name}-rqrt-https"
   redirect_configuration_name     = "${var.name}-rdrcfg"
   ssl_certificate_name            = "${var.name}-sslcert"
+  probe_name                      = "${var.name}-probe"
 
   # An HTTPS listener is only possible once a certificate has been supplied,
   # either from Key Vault or inline as PFX data.
@@ -100,6 +101,36 @@ resource "azurerm_application_gateway" "this" {
     port                  = var.backend_port
     protocol              = var.backend_protocol
     request_timeout       = var.request_timeout
+
+    # Without host_name or pick_host_name_from_backend_address the gateway
+    # forwards the client's Host header; backends such as App Service need one
+    # of the two to accept the request.
+    host_name                           = var.backend_host_name
+    pick_host_name_from_backend_address = var.backend_pick_host_name_from_backend_address
+
+    # Null keeps Azure's default probe (GET / on the backend address).
+    probe_name = var.probe == null ? null : local.probe_name
+  }
+
+  dynamic "probe" {
+    for_each = var.probe == null ? [] : [var.probe]
+
+    content {
+      name                                      = local.probe_name
+      protocol                                  = coalesce(probe.value.protocol, var.backend_protocol)
+      path                                      = probe.value.path
+      host                                      = probe.value.host
+      port                                      = probe.value.port
+      interval                                  = probe.value.interval
+      timeout                                   = probe.value.timeout
+      unhealthy_threshold                       = probe.value.unhealthy_threshold
+      pick_host_name_from_backend_http_settings = probe.value.pick_host_name_from_backend_http_settings
+
+      match {
+        status_code = probe.value.match_status_codes
+        body        = probe.value.match_body
+      }
+    }
   }
 
   dynamic "ssl_certificate" {
@@ -207,6 +238,25 @@ resource "azurerm_application_gateway" "this" {
     precondition {
       condition     = !local.https_enabled || var.frontend_port != var.https_port
       error_message = "frontend_port and https_port must differ; got ${var.frontend_port} for both."
+    }
+
+    precondition {
+      condition     = var.backend_host_name == null || !var.backend_pick_host_name_from_backend_address
+      error_message = "Set either backend_host_name or backend_pick_host_name_from_backend_address, not both."
+    }
+
+    precondition {
+      condition     = var.probe == null ? true : (var.probe.host == null) == var.probe.pick_host_name_from_backend_http_settings
+      error_message = "probe needs exactly one host source: either set probe.host (and pick_host_name_from_backend_http_settings = false) or leave probe.host null and pick the host from the backend HTTP settings."
+    }
+
+    precondition {
+      condition = var.probe == null ? true : (
+        !var.probe.pick_host_name_from_backend_http_settings ||
+        var.backend_host_name != null ||
+        var.backend_pick_host_name_from_backend_address
+      )
+      error_message = "probe.pick_host_name_from_backend_http_settings requires the backend HTTP settings to carry a host: set backend_host_name or backend_pick_host_name_from_backend_address, or give the probe its own host."
     }
   }
 }

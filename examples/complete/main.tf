@@ -44,6 +44,14 @@ module "application_gateway" {
   backend_protocol = "Https"
   backend_port     = 443
 
+  # Send each backend's own host name and probe a health path instead of
+  # Azure's default GET / with the client's Host header.
+  backend_pick_host_name_from_backend_address = true
+
+  probe = {
+    path = "/healthz"
+  }
+
   tags = {
     Environment = "sandbox"
     ManagedBy   = "terraform"
